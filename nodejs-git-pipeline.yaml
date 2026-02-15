@@ -1,0 +1,103 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: nodejs-git-pipeline
+spec:
+  params:
+    - name: git-url
+      type: string
+      description: Git repository URL
+    - name: git-revision
+      type: string
+      description: Git revision to build
+      default: main
+    - name: app-name
+      type: string
+      description: Application name
+      default: nodejs-app
+  
+  workspaces:
+    - name: shared-workspace
+  
+  tasks:
+    # Task 1: Clone Git Repository
+    - name: fetch-repository
+      taskRef:
+        name: git-clone
+        kind: ClusterTask
+        apiVersion: tekton.dev/v1beta1
+      workspaces:
+        - name: output
+          workspace: shared-workspace
+      params:
+        - name: url
+          value: $(params.git-url)
+        - name: revision
+          value: $(params.git-revision)
+        - name: deleteExisting
+          value: "true"
+    
+    # Task 2: Build Docker Image
+    - name: build-image
+      taskRef:
+        name: buildah
+        kind: ClusterTask
+        apiVersion: tekton.dev/v1beta1
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      params:
+        - name: IMAGE
+          value: image-registry.openshift-image-registry.svc:5000/$(context.pipelineRun.namespace)/$(params.app-name):latest
+        - name: TLSVERIFY
+          value: "false"
+      runAfter:
+        - fetch-repository
+    
+    # Task 3: Deploy Application
+    - name: deploy-app
+      taskSpec:
+        params:
+          - name: app-name
+          - name: image
+        steps:
+          - name: deploy
+            image: quay.io/openshift/origin-cli:latest
+            script: |
+              #!/bin/bash
+              set -e
+              
+              echo "Deploying $(params.app-name)..."
+              
+              # Create or update deployment
+              if oc get deployment $(params.app-name) 2>/dev/null; then
+                echo "Updating existing deployment..."
+                oc set image deployment/$(params.app-name) \
+                  $(params.app-name)=$(params.image)
+              else
+                echo "Creating new deployment..."
+                oc create deployment $(params.app-name) \
+                  --image=$(params.image) --port=8080
+                
+                # Expose the service
+                oc expose deployment $(params.app-name) --port=8080
+                oc expose svc/$(params.app-name)
+              fi
+              
+              # Wait for rollout
+              oc rollout status deployment/$(params.app-name) --timeout=5m
+              
+              # Get the route
+              ROUTE=$(oc get route $(params.app-name) -o jsonpath='{.spec.host}' 2>/dev/null || echo "No route yet")
+              
+              echo "=========================================="
+              echo "Deployment complete!"
+              echo "App URL: http://$ROUTE"
+              echo "=========================================="
+      params:
+        - name: app-name
+          value: $(params.app-name)
+        - name: image
+          value: image-registry.openshift-image-registry.svc:5000/$(context.pipelineRun.namespace)/$(params.app-name):latest
+      runAfter:
+        - build-image

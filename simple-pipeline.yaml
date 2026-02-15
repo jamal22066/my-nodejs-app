@@ -1,0 +1,23 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: simple-git-pipeline
+spec:
+  params:
+    - name: app-name
+      default: my-nodejs-app
+  tasks:
+    - name: trigger-build
+      taskSpec:
+        params:
+          - name: app-name
+        steps:
+          - name: start-build
+            image: quay.io/openshift/origin-cli:latest
+            script: |
+              #!/bin/bash
+              echo "Starting build for $(params.app-name)..."
+              oc start-build $(params.app-name) --follow
+      params:
+        - name: app-name
+          value: $(params.app-name)
