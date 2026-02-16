@@ -52,7 +52,7 @@ app.get('/', (req, res) => {
   res.send(`
     <h1>Hello from OpenShift Pipeline! 🚀</h1>
     <p>This app was deployed automatically via Tekton!</p>
-    <p>Version: 3.0.0 - Now with Monitoring!</p>
+    <p>Version: 4.0.0 - Now with Monitoring!</p>
     <p><a href="/metrics">View Metrics</a> | <a href="/health">Health Check</a></p>
   `);
 });
